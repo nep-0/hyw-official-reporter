@@ -152,18 +152,28 @@ func run() error {
 	}()
 	ticker := time.NewTicker(*interval)
 	defer ticker.Stop()
+	return watchPolls(ctx, ticker.C, func() error {
+		return runPoll(ctx, source, shopID, bot.groupID, *statePath, bot.send)
+	})
+}
+
+func watchPolls(ctx context.Context, ticks <-chan time.Time, poll func() error) error {
 	for {
-		if err := runPoll(ctx, source, shopID, bot.groupID, *statePath, bot.send); err != nil {
-			if ctx.Err() != nil && errors.Is(err, context.Canceled) {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if err := poll(); err != nil {
+			if ctx.Err() != nil {
 				return nil
 			}
-			return err
+			slog.Warn("poll failed; retrying on next interval", "error", err)
+		} else {
+			slog.Info("poll complete")
 		}
-		slog.Info("poll complete", "shop_id", shopID)
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case <-ticks:
 		}
 	}
 }

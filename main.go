@@ -110,7 +110,7 @@ func run() error {
 		return fmt.Errorf("HYW_SHOP_ID must select a shop")
 	}
 	if *mode == "fetch" {
-		records, total, err := source.list(ctx, shopID, 1, 50)
+		records, total, err := source.list(ctx, shopID, 1, 20)
 		if err != nil {
 			return err
 		}

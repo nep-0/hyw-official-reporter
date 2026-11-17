@@ -26,13 +26,13 @@ go run . -mode fetch
 go run . -mode watch -interval 30s -state data/state.json
 ```
 
-Default `fetch` prints the newest page (up to 50 full records) to stdout. It never sends QQ messages or changes local delivery state. Output may contain private broadcast content. `shops` lists shop IDs/names. Both authenticate using `.env`.
+`fetch` prints the newest page (up to 20 full records) to stdout. Watch-mode pagination also fetches 20 records per request. Preview mode never sends QQ messages or changes local delivery state. Output may contain private broadcast content. `shops` lists shop IDs/names. Both authenticate using `.env`.
 
 `watch` first snapshots all retained records without sending history. Later polls paginate through retained records and deliver unseen records oldest-first. Both successful and failed original Heyinwu broadcasts are forwarded: upstream `status` describes the original delivery, not this reporter. State is stored locally and bound to the selected shop and QQ destination. No checkbox, note, or delivery flag is written to Heyinwu.
 
 Keep the state file across restarts. Deleting it establishes a new baseline and skips currently retained history. Run one process per state file. A `.lock` file prevents concurrent local processes; after a crash, verify the old process is stopped before removing its stale lock. Watch-mode poll errors are logged and retried on the next polling interval without exiting. Failed records remain uncheckpointed, so delivery resumes from the first pending record; a persistently failing record blocks later records to preserve ordering. State errors are also logged and retried without resetting state. Startup errors (including configuration, initial login, and lock acquisition) and one-shot command errors still exit nonzero. Ctrl+C or SIGTERM shuts down and releases the lock.
 
-Delivery is **at least once**, not exactly once: a crash after QQ accepts a message but before checkpointing can duplicate it. Image records send text followed by images; a partial failure may repeat already-sent parts. API retention is 30 days, so longer outages can lose expired records. Offset pagination is not an atomic snapshot; newly inserted records are picked up on subsequent polls.
+Delivery is **at least once**, not exactly once: a crash after QQ accepts a message but before checkpointing can duplicate it. Records containing images are sent as one Markdown message: original text, two linebreaks, then dimensioned inline images separated by two linebreaks. All image dimensions are resolved before sending, so a metadata failure sends nothing. Image-only records have no leading blank lines or placeholder. Text-only records remain plain text. API retention is 30 days, so longer outages can lose expired records. Offset pagination is not an atomic snapshot; newly inserted records are picked up on subsequent polls.
 
 ## Container image and GitHub Actions
 
@@ -54,7 +54,7 @@ The admin HTTP client allowlists only `login`, `shop_list`, `tell_log_list`, and
 
 The existing `.env` is left unchanged. QQ delivery has been exercised using an isolated HTTP transport, not a real group. To start live forwarding, supply QQ credentials and the bot-specific destination, then explicitly use `-mode watch`.
 
-Image delivery uses the same custom Markdown inline-image method as `rmj-card-go`: `msg_type: 2` with `markdown.content` containing `![播报图片](public-image-url)`. The bot needs custom Markdown permission, and QQ must be able to fetch the source image URL. No `/files` upload or type-7 media message is used. Unlike interactive card replies, these proactive broadcasts have no reply `msg_id` or card-command keyboard. Card-specific `#1280px #1100px` dimensions are not applied to arbitrary broadcast images.
+Image delivery uses the same custom Markdown inline-image syntax as `rmj-card-go`: `msg_type: 2` with `markdown.content` containing `![播报图片 #WIDTHpx #HEIGHTpx](public-image-url)`. Dimensions come from the source image header (PNG/JPEG/GIF), read with a 15-second timeout and 1 MiB metadata limit, rather than reusing the reference card's fixed dimensions. Image-only records do not send a placeholder text message. The bot needs custom Markdown permission, and QQ must be able to fetch the source URL. No `/files` upload or type-7 media message is used. Unlike interactive card replies, proactive broadcasts have no reply `msg_id` or card-command keyboard. Offline SDK coverage verifies actual dimensions in Markdown and absence of placeholder text; QQ rendering still requires live confirmation.
 
 ## Research sources
 

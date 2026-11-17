@@ -68,11 +68,11 @@ func runPoll(ctx context.Context, source *heyinwuClient, shopID int, groupID, st
 	// The API is newest first; scan all retained pages so downtime never skips a backlog.
 	current := map[string]bool{}
 	for page := 1; ; page++ {
-		records, total, err := source.list(ctx, shopID, page, 50)
+		records, total, err := source.list(ctx, shopID, page, 20)
 		if err != nil {
 			return err
 		}
-		if len(records) == 0 && (page-1)*50 < total {
+		if len(records) == 0 && (page-1)*20 < total {
 			return fmt.Errorf("broadcast pagination ended before total")
 		}
 		for _, record := range records {
@@ -87,7 +87,7 @@ func runPoll(ctx context.Context, source *heyinwuClient, shopID int, groupID, st
 				pending = append(pending, record)
 			}
 		}
-		if page*50 >= total {
+		if page*20 >= total {
 			break
 		}
 	}

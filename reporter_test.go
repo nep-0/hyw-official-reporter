@@ -19,14 +19,18 @@ func TestPollBaselineBacklogAndFailure(t *testing.T) {
 		case "/tell_log_list":
 			var request struct {
 				Page int `json:"page"`
+				Size int `json:"size"`
 			}
 			if err := json.UnmarshalRead(r.Body, &request); err != nil {
 				t.Error(err)
 				w.WriteHeader(400)
 				return
 			}
-			start := min((request.Page-1)*50, len(records))
-			end := min(start+50, len(records))
+			if request.Size != 20 {
+				t.Errorf("fetch size = %d, want 20", request.Size)
+			}
+			start := min((request.Page-1)*request.Size, len(records))
+			end := min(start+request.Size, len(records))
 			if err := json.MarshalWrite(w, map[string]any{"code": 200, "data": map[string]any{"list": records[start:end], "total": len(records)}}); err != nil {
 				t.Error(err)
 			}

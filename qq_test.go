@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json/v2"
 	"errors"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,6 +23,13 @@ func TestQQSDKTextImagesAndErrorDetails(t *testing.T) {
 	var images []string
 	var texts []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/first.png" || r.URL.Path == "/second.png" {
+			w.Header().Set("Content-Type", "image/png")
+			if err := png.Encode(w, image.NewRGBA(image.Rect(0, 0, 32, 24))); err != nil {
+				t.Error(err)
+			}
+			return
+		}
 		if r.URL.Path != "/v2/groups/group/messages" {
 			t.Errorf("unexpected endpoint %s", r.URL.Path)
 			w.WriteHeader(404)
@@ -76,15 +85,29 @@ func TestQQSDKTextImagesAndErrorDetails(t *testing.T) {
 		return nil
 	})
 	api := botgo.NewOpenAPI("offline-test-app", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "offline-token", TokenType: "QQBot"}))
-	bot := &qqClient{api: api, groupID: "group"}
-	if err := bot.send(t.Context(), tellRecord{Msg: "hello", Imgs: []string{"https://example.com/first.png", "https://example.com/second.png?version=2"}}); err != nil {
+	bot := &qqClient{api: api, groupID: "group", imageClient: server.Client()}
+	firstURL, secondURL := server.URL+"/first.png", server.URL+"/second.png?version=2"
+	if err := bot.send(t.Context(), tellRecord{Msg: "hello", Imgs: []string{firstURL, secondURL}}); err != nil {
 		t.Fatal(err)
 	}
-	if len(texts) != 1 || texts[0] != "hello" {
-		t.Errorf("text delivery = %v, want [hello]", texts)
+	if len(texts) != 0 || len(images) != 1 {
+		t.Fatalf("combined delivery: texts = %v, Markdown messages = %v; want exactly one Markdown message", texts, images)
 	}
-	if len(images) != 2 || images[0] != "![播报图片](https://example.com/first.png)" || images[1] != "![播报图片](https://example.com/second.png?version=2)" {
-		t.Errorf("Markdown image delivery = %v", images)
+	want := "hello\n\n![播报图片 #32px #24px](" + firstURL + ")\n\n![播报图片 #32px #24px](" + secondURL + ")"
+	if images[0] != want {
+		t.Errorf("combined content = %q, want %q", images[0], want)
+	}
+	if err := bot.send(t.Context(), tellRecord{Imgs: []string{firstURL}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(texts) != 0 || len(images) != 2 || images[1] != "![播报图片 #32px #24px]("+firstURL+")" {
+		t.Errorf("image-only delivery: texts = %v, Markdown messages = %v; want one additional image-only message", texts, images)
+	}
+	if err := bot.send(t.Context(), tellRecord{Msg: "plain text"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(texts) != 1 || texts[0] != "plain text" {
+		t.Errorf("text-only delivery = %v, want [plain text]", texts)
 	}
 	err = bot.send(t.Context(), tellRecord{Msg: "rejected"})
 	var sdkErr *errs.Err

@@ -36,7 +36,7 @@ Delivery is **at least once**, not exactly once: a crash after QQ accepts a mess
 
 ## Container image and GitHub Actions
 
-`.github/workflows/container-image.yml` follows `rmj-card-go`: pushes to `main` and `v*.*.*` tags test, build, and publish an OCI image to GHCR; pull requests test and build without publishing. Tags include the branch/tag, commit SHA, and `latest` on the default branch. Authentication uses `GITHUB_TOKEN` with package-write permission; no Heyinwu or QQ secrets are needed in CI.
+`.github/workflows/container-image.yml` follows `rmj-card-go`: pushes to `main` and `v*.*.*` tags build and publish an OCI image to GHCR; pull requests build without publishing. Tags include the branch/tag, commit SHA, and `latest` on the default branch. Authentication uses `GITHUB_TOKEN` with package-write permission; no Heyinwu or QQ secrets are needed in CI.
 
 The multi-stage Dockerfile uses the same Go/Alpine build and `su-exec` startup convention as the reference. The process runs as `app` and keeps state in `/app/data`. `.dockerignore` excludes `.env` files and local state from the build context. The default image command remains a read-only fetch; pass `-mode watch` explicitly for forwarding.
 

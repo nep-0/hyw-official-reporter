@@ -59,7 +59,7 @@ func main() {
 }
 
 func run() error {
-	mode := flag.String("mode", "fetch", "fetch (read-only preview), shops, or watch")
+	mode := flag.String("mode", "watch", "fetch (read-only preview), shops, or watch")
 	envPath := flag.String("env", ".env", "dotenv file; process environment takes precedence")
 	statePath := flag.String("state", "data/state.json", "local delivery checkpoint")
 	interval := flag.Duration("interval", 30*time.Second, "polling interval")

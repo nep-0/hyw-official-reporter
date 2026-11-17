@@ -3,8 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"image"
-	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -22,9 +21,10 @@ import (
 )
 
 type qqClient struct {
-	api         openapi.OpenAPI
-	groupID     string
-	imageClient *http.Client
+	api            openapi.OpenAPI
+	groupID        string
+	imageClient    *http.Client
+	pendingDeletes []string
 }
 
 func newQQClient(appID, secret, groupID string) *qqClient {
@@ -40,6 +40,18 @@ func newQQClient(appID, secret, groupID string) *qqClient {
 }
 
 func (c *qqClient) send(ctx context.Context, record tellRecord) error {
+	if err := c.cleanupMaterials(ctx); err != nil {
+		return err
+	}
+	defer func() {
+		// Cleanup must still run if sending was canceled. A cleanup failure must
+		// not turn an accepted message into a delivery retry and duplicate it.
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if err := c.cleanupMaterials(cleanupCtx); err != nil {
+			slog.Warn("delete QQ materials; retrying before next delivery", "error", err)
+		}
+	}()
 	var content strings.Builder
 	content.WriteString(record.Msg)
 	hasImages := false
@@ -48,14 +60,14 @@ func (c *qqClient) send(ctx context.Context, record tellRecord) error {
 		if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
 			continue
 		}
-		width, height, err := c.imageSize(ctx, imageURL)
+		material, width, height, err := c.uploadImage(ctx, imageURL)
 		if err != nil {
-			return fmt.Errorf("inspect QQ image %d: %w", i+1, err)
+			return fmt.Errorf("upload QQ image %d: %w", i+1, err)
 		}
 		if content.Len() > 0 {
 			content.WriteString("\n\n")
 		}
-		fmt.Fprintf(&content, "![播报图片 #%dpx #%dpx](%s)", width, height, imageURL)
+		fmt.Fprintf(&content, "![播报图片 #%dpx #%dpx](%s)", width, height, material)
 		hasImages = true
 	}
 	message := &dto.MessageToCreate{Content: record.Msg}
@@ -68,29 +80,6 @@ func (c *qqClient) send(ctx context.Context, record tellRecord) error {
 		return fmt.Errorf("send QQ %s: %w", stage, err)
 	}
 	return nil
-}
-
-func (c *qqClient) imageSize(ctx context.Context, imageURL string) (int, int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
-	if err != nil {
-		return 0, 0, err
-	}
-	res, err := c.imageClient.Do(req)
-	if err != nil {
-		return 0, 0, fmt.Errorf("fetch image header: %w", err)
-	}
-	defer res.Body.Close() // Only image metadata is read; close errors cannot change it.
-	if res.StatusCode != http.StatusOK {
-		return 0, 0, fmt.Errorf("image HTTP status %d", res.StatusCode)
-	}
-	config, _, err := image.DecodeConfig(io.LimitReader(res.Body, 1<<20))
-	if err != nil {
-		return 0, 0, fmt.Errorf("decode image dimensions: %w", err)
-	}
-	if config.Width <= 0 || config.Height <= 0 {
-		return 0, 0, fmt.Errorf("invalid image dimensions")
-	}
-	return config.Width, config.Height, nil
 }
 
 // quietSDKLogger prevents SDK credential and response-body logs. Returned SDK

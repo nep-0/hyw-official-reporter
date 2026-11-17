@@ -154,6 +154,9 @@ func run() error {
 	ticker := time.NewTicker(*interval)
 	defer ticker.Stop()
 	return watchPolls(ctx, ticker.C, func() error {
+		if err := bot.cleanupMaterials(ctx); err != nil {
+			return err
+		}
 		return runPoll(ctx, source, shopID, bot.groupID, *statePath, bot.send)
 	})
 }

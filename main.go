@@ -129,10 +129,11 @@ func run() error {
 		}
 		return nil
 	}
-	bot := &qqClient{appID: os.Getenv("QQ_BOT_APPID"), secret: os.Getenv("QQ_BOT_SECRET"), groupID: os.Getenv("QQ_BOT_GROUP_OPENID"), httpClient: client}
-	if bot.appID == "" || bot.secret == "" || bot.groupID == "" {
+	appID, secret, groupID := os.Getenv("QQ_BOT_APPID"), os.Getenv("QQ_BOT_SECRET"), os.Getenv("QQ_BOT_GROUP_OPENID")
+	if appID == "" || secret == "" || groupID == "" {
 		return fmt.Errorf("watch requires QQ_BOT_APPID, QQ_BOT_SECRET, and QQ_BOT_GROUP_OPENID")
 	}
+	bot := newQQClient(appID, secret, groupID)
 	// Exclusive file creation prevents two local processes from reporting the same records.
 	if err := os.MkdirAll(filepath.Dir(*statePath), 0700); err != nil {
 		return err

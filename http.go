@@ -9,7 +9,7 @@ import (
 	"net/http"
 )
 
-func postJSON(ctx context.Context, client *http.Client, endpoint string, payload any, token, appID string, result any) error {
+func postJSON(ctx context.Context, client *http.Client, endpoint string, payload any, result any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
@@ -19,10 +19,6 @@ func postJSON(ctx context.Context, client *http.Client, endpoint string, payload
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "QQBot "+token)
-		req.Header.Set("X-Union-Appid", appID)
-	}
 	res, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)

@@ -5,11 +5,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -89,59 +87,5 @@ func TestPollBaselineBacklogAndFailure(t *testing.T) {
 	}
 	if err := runPoll(t.Context(), source, 45, "different", state, send); err == nil {
 		t.Error("expected group mismatch error")
-	}
-}
-
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
-
-func TestQQTextAndImages(t *testing.T) {
-	var calls []string
-	var imageContents []string
-	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		calls = append(calls, r.URL.Path)
-		var payload map[string]any
-		if err := json.UnmarshalRead(r.Body, &payload); err != nil {
-			t.Error(err)
-		}
-		response := `{"id":"message"}`
-		switch r.URL.Path {
-		case "/app/getAppAccessToken":
-			response = `{"access_token":"secret-token","expires_in":"7200"}`
-		case "/v2/groups/group/messages":
-			if r.Header.Get("Authorization") != "QQBot secret-token" {
-				t.Error("missing QQ authorization")
-			}
-			if payload["msg_type"] == float64(2) {
-				markdown, ok := payload["markdown"].(map[string]any)
-				if !ok {
-					t.Error("image message has no Markdown body")
-				} else {
-					content, _ := markdown["content"].(string)
-					imageContents = append(imageContents, content)
-				}
-				if _, ok := payload["media"]; ok {
-					t.Error("Markdown image must not use uploaded media")
-				}
-			} else if payload["msg_type"] != float64(0) || payload["content"] != "hello" {
-				t.Errorf("unexpected text payload: %v", payload)
-			}
-		default:
-			t.Errorf("unexpected request %s", r.URL)
-		}
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(response)), Header: make(http.Header)}, nil
-	})}
-	bot := &qqClient{appID: "app", secret: "secret", groupID: "group", httpClient: client}
-	if err := bot.send(t.Context(), tellRecord{Msg: "hello", Imgs: []string{"https://example.com/first.png", "https://example.com/second.png?version=2"}}); err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"/app/getAppAccessToken", "/v2/groups/group/messages", "/v2/groups/group/messages", "/v2/groups/group/messages"}
-	if fmt.Sprint(calls) != fmt.Sprint(want) {
-		t.Errorf("QQ request flow = %v, want %v", calls, want)
-	}
-	wantImages := []string{"![播报图片](https://example.com/first.png)", "![播报图片](https://example.com/second.png?version=2)"}
-	if fmt.Sprint(imageContents) != fmt.Sprint(wantImages) {
-		t.Errorf("Markdown images = %v, want %v", imageContents, wantImages)
 	}
 }

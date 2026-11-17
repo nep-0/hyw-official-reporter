@@ -58,7 +58,7 @@ func (c *heyinwuClient) call(ctx context.Context, endpoint string, payload map[s
 	}
 	for attempt := range 2 {
 		var envelope hywEnvelope
-		if err := postJSON(ctx, c.httpClient, c.baseURL+"/"+endpoint, payload, "", "", &envelope); err != nil {
+		if err := postJSON(ctx, c.httpClient, c.baseURL+"/"+endpoint, payload, &envelope); err != nil {
 			return fmt.Errorf("%s: %w", endpoint, err)
 		}
 		if envelope.Code == 455 && endpoint != "login" && attempt == 0 {

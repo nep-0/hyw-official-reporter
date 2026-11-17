@@ -1,6 +1,6 @@
 # Heyinwu official QQ reporter
 
-Browser-free Go service forwarding Heyinwu admin **broadcast records** (播报记录), including text and image records, through an official QQ group bot. No dependencies beyond Go 1.27.4.
+Browser-free Go service forwarding Heyinwu admin **broadcast records** (播报记录), including text and image records, through an official QQ group bot. Requires Go 1.27.4 and uses Tencent `botgo v0.2.1`, matching `rmj-card-go`. Dependencies are managed with `go get` and `go mod tidy`.
 
 ## Configuration
 
@@ -50,7 +50,7 @@ Preserve the named volume across restarts to retain checkpoints. For published i
 
 ## Safety and implementation
 
-The admin HTTP client allowlists only `login`, `shop_list`, `tell_log_list`, and `tell_log_detail`. All use JSON POST because that is the site's protocol. No browser automation, logout, moderation, configuration changes, note updates, or `done` updates. Login creates a session; production authentication may have server-side audit/session effects. Credentials/tokens are never deliberately logged. Redirects are rejected to avoid forwarding credentials to another endpoint.
+The admin HTTP client allowlists only `login`, `shop_list`, `tell_log_list`, and `tell_log_detail`. All use JSON POST because that is the site's protocol. No browser automation, logout, moderation, configuration changes, note updates, or `done` updates. Login creates a session; production authentication may have server-side audit/session effects. Admin redirects are rejected to avoid forwarding credentials. QQ requests use the official SDK. Its verbose internal logging is disabled because v0.2.1 logs credentials and tokens; returned SDK errors are logged at the poll boundary instead.
 
 The existing `.env` is left unchanged. QQ delivery has been exercised using an isolated HTTP transport, not a real group. To start live forwarding, supply QQ credentials and the bot-specific destination, then explicitly use `-mode watch`.
 
@@ -66,8 +66,10 @@ Image delivery uses the same custom Markdown inline-image method as `rmj-card-go
 
 ## Verification
 
-Offline regression coverage includes baseline suppression, pagination across 55 new records, oldest-first delivery, failed-send retry, restart deduplication, and destination mismatch rejection. `go test -run '^TestQQTextAndImages$' .` passed, verifying QQ authorization, text delivery followed by two custom Markdown images, preserved image URLs/order, and absence of file-upload requests. Live image rendering and QQ platform acceptance remain unverified; no real image message was sent.
+Offline regression coverage includes baseline suppression, pagination across 55 new records, oldest-first delivery, failed-send retry, restart deduplication, destination mismatch rejection, and watch-loop recovery. `TestQQSDKTextImagesAndErrorDetails` exercises the real botgo HTTP stack against a local server, checking text plus two Markdown images and preservation of HTTP status, QQ error body, trace ID, and failing operation. No real QQ message was sent; live platform acceptance remains unverified.
 
 `go run . -mode fetch` succeeded against production using the existing `.env`: 95 available records, 50 full records decoded, including 12 with image URLs. No real QQ message was sent.
 
 Container/CI checks: `actionlint .github/workflows/container-image.yml`, `sh -n docker-entrypoint.sh`, and a Linux amd64 static cross-build with the Dockerfile's build flags passed. CLI help was exercised without contacting production. A local Docker image build was not run because Docker is unavailable; the GitHub-hosted workflow still needs its first run.
+
+The reported rejection for RID `1794937669384-3273` was inspected through read-only `tell_log_detail`: it is a text record with 38 characters and no images. Thus that record's rejection occurs on text sending, not the Markdown image path. The old transport discarded the response body, so the historical HTTP 400 alone cannot identify QQ's reason. SDK errors now include the rejected operation (`send QQ text` or `send QQ image N`), QQ response body/code, and trace ID. The next naturally occurring failure supplies the missing evidence without sending a diagnostic production message.

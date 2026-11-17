@@ -54,17 +54,19 @@ The admin HTTP client allowlists only `login`, `shop_list`, `tell_log_list`, and
 
 The existing `.env` is left unchanged. QQ delivery has been exercised using an isolated HTTP transport, not a real group. To start live forwarding, supply QQ credentials and the bot-specific destination, then explicitly use `-mode watch`.
 
+Image delivery uses the same custom Markdown inline-image method as `rmj-card-go`: `msg_type: 2` with `markdown.content` containing `![播报图片](public-image-url)`. The bot needs custom Markdown permission, and QQ must be able to fetch the source image URL. No `/files` upload or type-7 media message is used. Unlike interactive card replies, these proactive broadcasts have no reply `msg_id` or card-command keyboard. Card-specific `#1280px #1100px` dimensions are not applied to arbitrary broadcast images.
+
 ## Research sources
 
 - [Heyinwu admin page](https://heyinwu.top/admin.html) loads the first-party [admin JavaScript](https://heyinwu.top/res/js/main.js?v=20261117d). `use.login` posts `{id, pass, token:""}` to `https://wechat.heyinwu.top/api/web/login`; successful replies contain `data.token` and `data.shop_id`.
 - The same script's `http.api_post` injects `token` into the JSON body; application code `455` means the session expired. The client reauthenticates once and retries the read.
 - `tell_func.load` uses `tell_log_list` with `{shop_id,page,size,kw:""}`, returning `data.list` and `data.total`. `tell_func.detail` uses `tell_log_detail` with `{shop_id,rid}`, returning `msg` and `imgs`. Records are retained for 30 days. `tell_log_note` writes notes/checkmarks and is deliberately excluded.
 - Live read-only verification authenticated the supplied account, read its shop list, fetched two broadcast summaries, and fetched one matching detail. Times are Unix milliseconds; records have stable string RIDs. No admin write endpoint was invoked.
-- QQ matches `../rmj-card-go/qqbot.go`'s proactive `PostGroupMessage` pattern. Wire protocol comes from Tencent's official [botgo token implementation](https://github.com/tencent-connect/botgo/blob/v0.2.1/token/token_source.go), [group routes](https://github.com/tencent-connect/botgo/blob/v0.2.1/openapi/v1/resource.go), [authorization](https://github.com/tencent-connect/botgo/blob/v0.2.1/openapi/v1/openapi.go), and [message DTOs](https://github.com/tencent-connect/botgo/blob/v0.2.1/dto/message_create.go). Images upload with `srv_send_msg:false`, then send type `7` with the returned `file_info`.
+- QQ text reporting follows `../rmj-card-go/qqbot.go`'s proactive `PostGroupMessage` pattern. Images match its `/card` inline Markdown method (`replyCommands` / `commandReply`), without card-specific buttons or reply context. Wire authentication and routes come from Tencent's official [botgo token implementation](https://github.com/tencent-connect/botgo/blob/v0.2.1/token/token_source.go), [group routes](https://github.com/tencent-connect/botgo/blob/v0.2.1/openapi/v1/resource.go), [authorization](https://github.com/tencent-connect/botgo/blob/v0.2.1/openapi/v1/openapi.go), and [message DTOs](https://github.com/tencent-connect/botgo/blob/v0.2.1/dto/message_create.go).
 
 ## Verification
 
-`go test ./...` passed: baseline suppression, pagination across 55 new records, oldest-first delivery, failed-send retry, restart deduplication, destination mismatch rejection, and the QQ token/text/image HTTP flow.
+Offline regression coverage includes baseline suppression, pagination across 55 new records, oldest-first delivery, failed-send retry, restart deduplication, and destination mismatch rejection. `go test -run '^TestQQTextAndImages$' .` passed, verifying QQ authorization, text delivery followed by two custom Markdown images, preserved image URLs/order, and absence of file-upload requests. Live image rendering and QQ platform acceptance remain unverified; no real image message was sent.
 
 `go run . -mode fetch` succeeded against production using the existing `.env`: 95 available records, 50 full records decoded, including 12 with image URLs. No real QQ message was sent.
 

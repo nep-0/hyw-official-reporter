@@ -75,17 +75,12 @@ func (c *qqClient) sendText(ctx context.Context, text string) error {
 }
 
 func (c *qqClient) sendImage(ctx context.Context, imageURL string) error {
-	var response struct {
-		FileInfo string `json:"file_info"`
+	// Match rmj-card-go's inline Markdown images; QQ fetches the public URL.
+	body := map[string]any{
+		"msg_type": 2,
+		"markdown": map[string]string{"content": fmt.Sprintf("![播报图片](%s)", imageURL)},
 	}
-	path := "/v2/groups/" + url.PathEscape(c.groupID) + "/files"
-	if err := c.qqPost(ctx, path, map[string]any{"file_type": 1, "url": imageURL, "srv_send_msg": false}, &response); err != nil {
-		return fmt.Errorf("upload QQ image: %w", err)
-	}
-	if response.FileInfo == "" {
-		return fmt.Errorf("QQ image upload returned empty file_info")
-	}
-	return c.qqPost(ctx, "/v2/groups/"+url.PathEscape(c.groupID)+"/messages", map[string]any{"msg_type": 7, "media": map[string]string{"file_info": response.FileInfo}}, nil)
+	return c.qqPost(ctx, "/v2/groups/"+url.PathEscape(c.groupID)+"/messages", body, nil)
 }
 
 func (c *qqClient) qqPost(ctx context.Context, path string, payload any, result any) error {

@@ -59,7 +59,7 @@ func main() {
 }
 
 func run() error {
-	mode := flag.String("mode", "watch", "fetch (read-only preview), shops, or watch")
+	mode := flag.String("mode", "websocket", "fetch (read-only preview), shops, watch, or websocket")
 	envPath := flag.String("env", ".env", "dotenv file; process environment takes precedence")
 	statePath := flag.String("state", "data/state.json", "local delivery checkpoint")
 	interval := flag.Duration("interval", 3*time.Second, "polling interval")
@@ -67,8 +67,13 @@ func run() error {
 	if err := loadEnv(*envPath); err != nil {
 		return err
 	}
-	if *mode != "fetch" && *mode != "shops" && *mode != "watch" {
+	if *mode != "fetch" && *mode != "shops" && *mode != "watch" && *mode != "websocket" {
 		return fmt.Errorf("unknown mode %q", *mode)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if *mode == "websocket" {
+		return runWebSocket(ctx)
 	}
 	if *interval <= 0 {
 		return fmt.Errorf("interval must be positive")
@@ -83,8 +88,6 @@ func run() error {
 	if source.username == "" || source.password == "" {
 		return fmt.Errorf("HYW_ADMIN_USERNAME and HYW_ADMIN_PASSWORD are required")
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	if err := source.login(ctx); err != nil {
 		return err
 	}
@@ -129,11 +132,10 @@ func run() error {
 		}
 		return nil
 	}
-	appID, secret, groupID := os.Getenv("QQ_BOT_APPID"), os.Getenv("QQ_BOT_SECRET"), os.Getenv("QQ_BOT_GROUP_OPENID")
-	if appID == "" || secret == "" || groupID == "" {
-		return fmt.Errorf("watch requires QQ_BOT_APPID, QQ_BOT_SECRET, and QQ_BOT_GROUP_OPENID")
+	bot, err := qqClientFromEnv()
+	if err != nil {
+		return err
 	}
-	bot := newQQClient(appID, secret, groupID)
 	// Exclusive file creation prevents two local processes from reporting the same records.
 	if err := os.MkdirAll(filepath.Dir(*statePath), 0700); err != nil {
 		return err
@@ -159,6 +161,44 @@ func run() error {
 		}
 		return runPoll(ctx, source, shopID, bot.groupID, *statePath, bot.send)
 	})
+}
+
+func qqClientFromEnv() (*qqClient, error) {
+	appID, secret, groupID := os.Getenv("QQ_BOT_APPID"), os.Getenv("QQ_BOT_SECRET"), os.Getenv("QQ_BOT_GROUP_OPENID")
+	if appID == "" || secret == "" || groupID == "" {
+		return nil, fmt.Errorf("forwarding requires QQ_BOT_APPID, QQ_BOT_SECRET, and QQ_BOT_GROUP_OPENID")
+	}
+	return newQQClient(appID, secret, groupID), nil
+}
+
+func runWebSocket(ctx context.Context) error {
+	token := os.Getenv("HYW_WS_TOKEN")
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("websocket mode requires HYW_WS_TOKEN")
+	}
+	selfID, err := strconv.ParseInt(os.Getenv("HYW_WS_SELF_ID"), 10, 64)
+	if err != nil || selfID <= 0 {
+		return fmt.Errorf("HYW_WS_SELF_ID must be a positive numeric bot QQ number")
+	}
+	groupID, err := strconv.ParseInt(os.Getenv("HYW_WS_GROUP_ID"), 10, 64)
+	if err != nil || groupID <= 0 {
+		return fmt.Errorf("HYW_WS_GROUP_ID must be a positive numeric QQ group number")
+	}
+	policy, err := newCQImagePolicy(os.Getenv("HYW_WS_IMAGE_HOSTS"))
+	if err != nil {
+		return err
+	}
+	bot, err := qqClientFromEnv()
+	if err != nil {
+		return err
+	}
+	// A redirect must not escape the image host allowlist.
+	bot.imageClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	bridge := napcatBridge{token: token, selfID: selfID, groupID: groupID, imagePolicy: policy, send: bot.send}
+	bridge.run(ctx)
+	return nil
 }
 
 func watchPolls(ctx context.Context, ticks <-chan time.Time, poll func() error) error {

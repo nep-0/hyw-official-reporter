@@ -34,15 +34,27 @@ Keep the state file across restarts. Deleting it establishes a new baseline and 
 
 Delivery is **at least once**, not exactly once: a crash after QQ accepts a message but before checkpointing can duplicate it. Records containing images are sent as one Markdown message: original text, two linebreaks, then dimensioned inline images separated by two linebreaks. All image dimensions are resolved before sending, so a metadata failure sends nothing. Image-only records have no leading blank lines or placeholder. Text-only records remain plain text. API retention is 30 days, so longer outages can lose expired records. Offset pagination is not an atomic snapshot; newly inserted records are picked up on subsequent polls.
 
+## WebSocket forwarding
+
+Set `HYW_WS_TOKEN` to the token from Heyinwu's NapCat instructions, `HYW_WS_SELF_ID` to the numeric QQ account configured as the shop's broadcaster, and `HYW_WS_GROUP_ID` to the numeric source group. Set the three `QQ_BOT_*` variables for the official bot and its destination group OpenID. This mode does not use admin credentials or the polling checkpoint.
+
+```sh
+go run . -mode websocket
+```
+
+The bridge connects to `wss://bot.heyinwu.top/`, answers `get_login_info`, sends a heartbeat every 10 seconds, and reconnects after 5 seconds. It accepts string `send_group_msg` requests for the configured group only. Plain text and CQ image tags are translated through the existing official QQ sender. Like NapCat, the bridge selects the first nonblank image source from `url`, `file`, then `path`. That source must be an HTTP(S) URL on `heyinwu.top`, `wechat.heyinwu.top`, or an exact hostname in `HYW_WS_IMAGE_HOSTS`; redirects, local files, and inline data are rejected. Success is returned only after QQ accepts the message.
+
+Stop any diagnostic probe or NapCat instance using the same reporter ID first. Do not run polling and WebSocket forwarding for the same broadcasts. WebSocket mode has no backfill or cross-reconnect deduplication; HYW replay is unverified, and losing the socket after QQ accepts a message but before HYW receives the reply can result in a duplicate if HYW resends it.
+
 ## Container image and GitHub Actions
 
 `.github/workflows/container-image.yml` follows `rmj-card-go`: pushes to `main` and `v*.*.*` tags build and publish an OCI image to GHCR; pull requests build without publishing. Tags include the branch/tag, commit SHA, and `latest` on the default branch. Authentication uses `GITHUB_TOKEN` with package-write permission; no Heyinwu or QQ secrets are needed in CI.
 
-The multi-stage Dockerfile uses the same Go/Alpine build and `su-exec` startup convention as the reference. The process runs as `app` and keeps state in `/app/data`. `.dockerignore` excludes `.env` files and local state from the build context. The default image command remains a read-only fetch; pass `-mode watch` explicitly for forwarding.
+The multi-stage Dockerfile uses the same Go/Alpine build and `su-exec` startup convention as the reference. The process runs as `app` and keeps state in `/app/data`. `.dockerignore` excludes `.env` files and local state from the build context. The default image command runs polling; pass `-mode fetch` explicitly for a read-only preview or `-mode websocket` for push delivery.
 
 ```sh
 docker build -t hyw-official-reporter .
-docker run --rm --env-file .env hyw-official-reporter
+docker run --rm --env-file .env hyw-official-reporter hyw-official-reporter -mode fetch
 docker run --rm --env-file .env -v hyw-reporter-data:/app/data hyw-official-reporter hyw-official-reporter -mode watch
 ```
 
@@ -58,6 +70,7 @@ Image delivery downloads the full source PNG/JPEG/GIF (15-second HTTP timeout, m
 
 ## Research sources
 
+- [Heyinwu reverse WebSocket research](hyw-websocket.md): verified NapCat/OneBot 11 startup exchange and the remaining broadcast-routing test.
 - [Heyinwu admin page](https://heyinwu.top/admin.html) loads the first-party [admin JavaScript](https://heyinwu.top/res/js/main.js?v=20261117d). `use.login` posts `{id, pass, token:""}` to `https://wechat.heyinwu.top/api/web/login`; successful replies contain `data.token` and `data.shop_id`.
 - The same script's `http.api_post` injects `token` into the JSON body; application code `455` means the session expired. The client reauthenticates once and retries the read.
 - `tell_func.load` uses `tell_log_list` with `{shop_id,page,size,kw:""}`, returning `data.list` and `data.total`. `tell_func.detail` uses `tell_log_detail` with `{shop_id,rid}`, returning `msg` and `imgs`. Records are retained for 30 days. `tell_log_note` writes notes/checkmarks and is deliberately excluded.
